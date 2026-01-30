@@ -2,12 +2,13 @@
 
 import { SpriteSheet } from './rendering/SpriteSheet.js';
 import { SpriteRenderer } from './rendering/SpriteRenderer.js';
-import { SPRITES } from './rendering/spriteDefinitions.js';
+import { Room, SIDE } from './Room.js';
 
 let gameState = {
     running: false,
     spriteSheets: {},  // Store multiple sprite sheets by name
-    spriteRenderer: null
+    spriteRenderer: null,
+    currentRoom: null  // Current room being displayed
 };
 
 export function initGame(canvas, ctx) {
@@ -39,6 +40,11 @@ function checkAllSheetsLoaded(canvas, ctx) {
 
     if (allLoaded && !gameState.running) {
         console.log('All sprite sheets ready, starting game loop');
+
+        // Create a test room (15x15 cells, 30px per cell, entrance on left)
+        gameState.currentRoom = new Room(15, 15, 30, SIDE.LEFT);
+        console.log('Room created:', gameState.currentRoom);
+
         gameState.running = true;
         gameLoop(canvas, ctx);
     }
@@ -73,6 +79,14 @@ function render(ctx) {
     ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    // Draw sprites - the sheet is automatically determined from the sprite definition
-    renderer.drawSprite(ctx, SPRITES.FLAG, 50, 120, 4);  // 4x scale
+    // Draw current room if it exists
+    if (gameState.currentRoom) {
+        // Center the room on the canvas
+        const roomPixelWidth = gameState.currentRoom.width * gameState.currentRoom.cellSize;
+        const roomPixelHeight = gameState.currentRoom.height * gameState.currentRoom.cellSize;
+        const offsetX = (ctx.canvas.width - roomPixelWidth) / 2;
+        const offsetY = (ctx.canvas.height - roomPixelHeight) / 2;
+
+        gameState.currentRoom.render(ctx, renderer, offsetX, offsetY);
+    }
 }
