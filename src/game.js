@@ -3,12 +3,18 @@
 import { SpriteSheet } from './rendering/SpriteSheet.js';
 import { SpriteRenderer } from './rendering/SpriteRenderer.js';
 import { Room, SIDE } from './Room.js';
+import { Input } from './Input.js';
+import { Player } from './Player.js';
 
 let gameState = {
     running: false,
     spriteSheets: {},  // Store multiple sprite sheets by name
     spriteRenderer: null,
-    currentRoom: null  // Current room being displayed
+    currentRoom: null,  // Current room being displayed
+    input: null,
+    player: null,
+    gameOver: false,
+    score: 0
 };
 
 export function initGame(canvas, ctx) {
@@ -16,6 +22,9 @@ export function initGame(canvas, ctx) {
 
     // Initialize sprite renderer (works with multiple sheets)
     gameState.spriteRenderer = new SpriteRenderer();
+
+    // Initialize input
+    gameState.input = new Input();
 
     // Load sprite sheet(s) - you can add more sheets here in the future
     gameState.spriteSheets.sheet_1 = new SpriteSheet('../assets/images/sheet_1.png', 10, 10, () => {
@@ -25,13 +34,6 @@ export function initGame(canvas, ctx) {
 
     // Register the sprite sheet with the renderer
     gameState.spriteRenderer.registerSpriteSheet('sheet_1', gameState.spriteSheets.sheet_1);
-
-    // Future sprite sheets can be added like this:
-    // gameState.spriteSheets.ui_sheet = new SpriteSheet('../assets/images/ui_sheet.png', 16, 16, () => {
-    //     console.log('ui_sheet loaded');
-    //     checkAllSheetsLoaded(canvas, ctx);
-    // });
-    // gameState.spriteRenderer.registerSpriteSheet('ui_sheet', gameState.spriteSheets.ui_sheet);
 }
 
 function checkAllSheetsLoaded(canvas, ctx) {
@@ -41,13 +43,31 @@ function checkAllSheetsLoaded(canvas, ctx) {
     if (allLoaded && !gameState.running) {
         console.log('All sprite sheets ready, starting game loop');
 
-        // Create a test room (15x15 cells, 30px per cell, entrance on left, 10 bombs, 5 enemies, 5 coins)
-        gameState.currentRoom = new Room(15, 15, 30, SIDE.LEFT, 10, 5, 3);
-        console.log('Room created:', gameState.currentRoom);
+        startNewGame();
 
         gameState.running = true;
         gameLoop(canvas, ctx);
     }
+}
+
+function startNewGame() {
+    console.log('Starting new game...');
+
+    // Reset Game State
+    gameState.gameOver = false;
+    gameState.score = 0;
+
+    // Create a test room (20x20 cells, 30px per cell, entrance on left, 25 bombs, 10 enemies, 5 coins)
+    gameState.currentRoom = new Room(20, 20, 30, SIDE.LEFT, 25, 10, 5);
+
+    // Create player at entrance
+    const entrance = gameState.currentRoom.entrancePos;
+    gameState.player = new Player(entrance.x, entrance.y);
+
+    // Trigger initial room logic for player start position
+    gameState.currentRoom.onPlayerEnter(gameState.player.x, gameState.player.y);
+
+    console.log('Room created:', gameState.currentRoom);
 }
 
 function gameLoop(canvas, ctx) {
@@ -67,7 +87,91 @@ function gameLoop(canvas, ctx) {
 }
 
 function update() {
-    // Update game logic here
+    if (!gameState.player || !gameState.input) return;
+
+    // Handle Game Over Input
+    if (gameState.gameOver) {
+        if (gameState.input.isJustPressed('KeyR')) {
+            startNewGame();
+        }
+        gameState.input.update(); // Make sure to consume inputs
+        return;
+    }
+
+    let actionTaken = false;
+
+    // --- Movement Controls (WASD) ---
+    let dx = 0;
+    let dy = 0;
+
+    if (gameState.input.isJustPressed('KeyW')) dy = -1;
+    else if (gameState.input.isJustPressed('KeyS')) dy = 1;
+
+    if (gameState.input.isJustPressed('KeyA')) dx = -1;
+    else if (gameState.input.isJustPressed('KeyD')) dx = 1;
+
+    if (dx !== 0 || dy !== 0) {
+        if (gameState.player.move(dx, dy, gameState.currentRoom)) {
+            // If move was successful, trigger room events
+            gameState.currentRoom.onPlayerEnter(gameState.player.x, gameState.player.y);
+
+            // Check for entities at the new position
+            const entityObj = gameState.currentRoom.getEntityAt(gameState.player.x, gameState.player.y);
+
+            if (entityObj) {
+                if (entityObj.type === 'bomb' || entityObj.type === 'enemy') {
+                    // Take damage
+                    const remainingHealth = gameState.player.takeDamage(1);
+                    console.log(`Hit ${entityObj.type}! Health: ${remainingHealth}`);
+
+                    // Remove the entity
+                    gameState.currentRoom.removeEntity(entityObj);
+                } else if (entityObj.type === 'coin') {
+                    // Collect coin
+                    gameState.score += 10;
+                    console.log(`Collected Coin! Score: ${gameState.score}`);
+
+                    // Remove the entity
+                    gameState.currentRoom.removeEntity(entityObj);
+                }
+            }
+            actionTaken = true;
+        }
+    }
+
+    // --- Attack Controls (Arrow Keys) ---
+    if (!actionTaken) {
+        let attackDx = 0;
+        let attackDy = 0;
+
+        if (gameState.input.isJustPressed('ArrowUp')) attackDy = -1;
+        else if (gameState.input.isJustPressed('ArrowDown')) attackDy = 1;
+        else if (gameState.input.isJustPressed('ArrowLeft')) attackDx = -1;
+        else if (gameState.input.isJustPressed('ArrowRight')) attackDx = 1;
+
+        if (attackDx !== 0 || attackDy !== 0) {
+            if (gameState.player.attack(attackDx, attackDy, gameState.currentRoom)) {
+                actionTaken = true;
+            }
+        }
+    }
+
+    // --- Enemy Turn ---
+    // Trigger only if player performed an action (Move or Attack)
+    if (actionTaken) {
+        if (gameState.player.health > 0) {
+            gameState.currentRoom.updateEnemies(gameState.player);
+        }
+
+        // --- Game State Check ---
+        if (gameState.player.health <= 0) {
+            gameState.gameOver = true;
+            console.log("Game Over!");
+        }
+    }
+
+    // Update input state at the end of the frame
+    gameState.input.update();
 }
 
 function render(ctx) {
@@ -88,5 +192,40 @@ function render(ctx) {
         const offsetY = (ctx.canvas.height - roomPixelHeight) / 2;
 
         gameState.currentRoom.render(ctx, renderer, offsetX, offsetY);
+
+        // Render player
+        if (gameState.player) {
+            gameState.player.render(ctx, renderer, gameState.currentRoom.cellSize, offsetX, offsetY);
+        }
+
+        // --- GUI ---
+
+        ctx.font = '20px "Press Start 2P", monospace';
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+
+        // Draw Health
+        ctx.fillText(`Health: ${gameState.player.health}`, 20, 20);
+
+        // Draw Score
+        ctx.textAlign = 'right';
+        ctx.fillText(`Score: ${gameState.score}`, ctx.canvas.width - 20, 20);
+
+        // Draw Game Over Overlay
+        if (gameState.gameOver) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+            ctx.font = '40px "Press Start 2P", monospace';
+            ctx.fillStyle = '#ff4444';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('GAME OVER', ctx.canvas.width / 2, ctx.canvas.height / 2 - 20);
+
+            ctx.font = '20px "Press Start 2P", monospace';
+            ctx.fillStyle = 'white';
+            ctx.fillText('Press R to Restart', ctx.canvas.width / 2, ctx.canvas.height / 2 + 40);
+        }
     }
 }

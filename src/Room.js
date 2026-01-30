@@ -5,6 +5,7 @@ import { SPRITES } from './rendering/spriteDefinitions.js';
 import { Bomb } from './Bomb.js';
 import { Enemy } from './Enemy.js';
 import { Coin } from './Coin.js';
+import { HorizontalChaseStrategy, VerticalChaseStrategy } from './ai/EnemyBehaviors.js';
 
 // Enum for sides of the room
 export const SIDE = {
@@ -112,29 +113,223 @@ export class Room {
     }
 
     /**
-     * Generates bombs randomly in the room avoiding restricted areas
+     * Generates bombs using Anti-Void strategy:
+     * 1. Place initial random bombs.
+     * 2. Identify and break large empty spaces (voids) by adding more bombs.
+     * 3. Ensure a valid path exists from Entrance to Exit (carve path if needed).
      */
     generateBombs() {
-        let placedBombs = 0;
+        // 1. Initial Scatter (Place ~80% of desired bombs randomly first)
+        const initialCount = Math.floor(this.bombCount * 0.8);
+        this.placeRandomBombs(initialCount);
+
+        // 2. Break Voids
+        // We need to calculate hints temporarily to find "0" clusters
+        this.calculateHints();
+        this.breakLargeVoids();
+
+        // 3. Fill remaining quota if needed (randomly)
+        const remaining = this.bombCount - this.bombs.length;
+        if (remaining > 0) {
+            this.placeRandomBombs(remaining);
+        }
+
+        // 4. Ensure Solvability
+        this.ensureSolvable();
+    }
+
+    /**
+     * Places N random bombs
+     */
+    placeRandomBombs(count) {
+        let placed = 0;
         let attempts = 0;
-        const maxAttempts = this.bombCount * 100; // Safety break
+        const maxAttempts = count * 50;
 
-        while (placedBombs < this.bombCount && attempts < maxAttempts) {
+        while (placed < count && attempts < maxAttempts) {
             attempts++;
-
-            // Random position inside walls (1 to width-2)
             const x = Math.floor(Math.random() * (this.width - 2)) + 1;
             const y = Math.floor(Math.random() * (this.height - 2)) + 1;
 
             if (this.isValidEntityPosition(x, y)) {
                 this.bombs.push(new Bomb(x, y));
-                placedBombs++;
+                placed++;
+            }
+        }
+    }
+
+    /**
+     * Finds large connected areas of 0-hint tiles and places a bomb in them
+     */
+    breakLargeVoids() {
+        const visited = new Set();
+        const clusters = [];
+
+        // Find clusters
+        for (let y = 1; y < this.height - 1; y++) {
+            for (let x = 1; x < this.width - 1; x++) {
+                if (this.cellData[y][x].hint === 0 && !this.hasEntityAt(x, y) && this.grid[y][x] === 0) {
+                    const key = `${x},${y}`;
+                    if (!visited.has(key)) {
+                        const cluster = this.getCluster(x, y, visited);
+                        clusters.push(cluster);
+                    }
+                }
             }
         }
 
-        if (placedBombs < this.bombCount) {
-            console.warn(`Could only place ${placedBombs}/${this.bombCount} bombs.`);
+        // Break clusters larger than threshold
+        const SIZE_THRESHOLD = 4; // Arbitrary size for "too big"
+
+        clusters.forEach(cluster => {
+            if (cluster.length > SIZE_THRESHOLD) {
+                // Pick a spot in the middle-ish (or random) to place a bomb
+                // Try to find a spot that doesn't block critical things? 
+                // Just random is fine, we fix solvability later.
+                const target = cluster[Math.floor(cluster.length / 2)];
+
+                // Verify it's still valid (in case overlapping? shouldn't happen with 0 hints but safe to check)
+                if (this.isValidEntityPosition(target.x, target.y)) {
+                    this.bombs.push(new Bomb(target.x, target.y));
+                }
+            }
+        });
+
+        // Recalculate hints after adding void-breaking bombs
+        this.calculateHints();
+    }
+
+    /**
+     * BFS to find connected component of 0-hint tiles
+     */
+    getCluster(startX, startY, visited) {
+        const cluster = [];
+        const queue = [{ x: startX, y: startY }];
+        visited.add(`${startX},${startY}`);
+        cluster.push({ x: startX, y: startY });
+
+        while (queue.length > 0) {
+            const curr = queue.shift();
+
+            // Check neighbors
+            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of dirs) {
+                const nx = curr.x + dx;
+                const ny = curr.y + dy;
+
+                if (nx > 0 && nx < this.width - 1 && ny > 0 && ny < this.height - 1) {
+                    const key = `${nx},${ny}`;
+                    if (!visited.has(key)) {
+                        const cell = this.cellData[ny][nx];
+                        // If it's a 0-hint floor tile with no entity
+                        if (cell.hint === 0 && !this.hasEntityAt(nx, ny) && this.grid[ny][nx] === 0) {
+                            visited.add(key);
+                            cluster.push({ x: nx, y: ny });
+                            queue.push({ x: nx, y: ny });
+                        }
+                    }
+                }
+            }
         }
+        return cluster;
+    }
+
+    /**
+     * Checks if path exists from Entrance to Exit. If not, removes bombs along a shortest path.
+     */
+    ensureSolvable() {
+        const start = this.entrancePos;
+        const end = this.exitPos;
+
+        // Simple BFS to check existence
+        if (this.hasPath(start, end)) return;
+
+        console.log("Room blocked, carving path...");
+
+        // If no path, find shortest path IGNORING bombs (but respecting walls)
+        // and remove any bombs on that path.
+        const path = this.findPathIdeally(start, end);
+
+        if (path) {
+            path.forEach(pos => {
+                // If there is a bomb here, remove it
+                const bombIndex = this.bombs.findIndex(b => b.x === pos.x && b.y === pos.y);
+                if (bombIndex !== -1) {
+                    this.bombs.splice(bombIndex, 1);
+                }
+            });
+            // Recalculate hints after carving
+            this.calculateHints();
+        } else {
+            // Should not happen unless walls block everything (unlikely with just border walls)
+            console.error("Critical: Cannot generate solvable path even ignoring bombs.");
+        }
+    }
+
+    hasPath(start, end) {
+        const queue = [start];
+        const visited = new Set([`${start.x},${start.y}`]);
+
+        while (queue.length > 0) {
+            const curr = queue.shift();
+            if (curr.x === end.x && curr.y === end.y) return true;
+
+            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of dirs) {
+                const nx = curr.x + dx;
+                const ny = curr.y + dy;
+
+                // Check bounds and walls
+                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height && this.grid[ny][nx] !== 1) {
+                    // Check entities (Bombs block path)
+                    // Note: In Minesweeper, you theoretically can't step on a bomb.
+                    // But here we are checking if a SAFE path exists.
+                    // So we treat bombs as walls.
+                    if (!this.hasEntityAt(nx, ny)) {
+                        const key = `${nx},${ny}`;
+                        if (!visited.has(key)) {
+                            visited.add(key);
+                            queue.push({ x: nx, y: ny });
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * BFS to find path ignoring entities (only walls block)
+     */
+    findPathIdeally(start, end) {
+        const queue = [[start]]; // Queue of paths
+        const visited = new Set([`${start.x},${start.y}`]);
+
+        while (queue.length > 0) {
+            const path = queue.shift();
+            const curr = path[path.length - 1];
+
+            if (curr.x === end.x && curr.y === end.y) return path;
+
+            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]]; // Diagonals allowed for carving?
+            // Actually player only moves cardinal (WASD). So keep cardinal.
+            const cardinalDirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+
+            for (const [dx, dy] of cardinalDirs) {
+                const nx = curr.x + dx;
+                const ny = curr.y + dy;
+
+                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height && this.grid[ny][nx] !== 1) {
+                    const key = `${nx},${ny}`;
+                    if (!visited.has(key)) {
+                        visited.add(key);
+                        const newPath = [...path, { x: nx, y: ny }];
+                        queue.push(newPath);
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -152,7 +347,12 @@ export class Room {
             const y = Math.floor(Math.random() * (this.height - 2)) + 1;
 
             if (this.isValidEntityPosition(x, y)) {
-                this.enemies.push(new Enemy(x, y));
+                // Randomly select strategy and sprite
+                const isVertical = Math.random() < 0.5;
+                const behavior = isVertical ? new VerticalChaseStrategy() : new HorizontalChaseStrategy();
+                const sprite = isVertical ? SPRITES.ENEMY_2 : SPRITES.ENEMY;
+
+                this.enemies.push(new Enemy(x, y, behavior, sprite));
                 placedEnemies++;
             }
         }
@@ -221,6 +421,77 @@ export class Room {
         this.bombs.forEach(b => updateNeighbor(b.x, b.y, 'bomb'));
         this.enemies.forEach(e => updateNeighbor(e.x, e.y, 'enemy'));
         this.coins.forEach(c => updateNeighbor(c.x, c.y, 'coin'));
+    }
+
+    /**
+     * Updates all enemies (AI turn)
+     * @param {Object} player - The player object
+     */
+    updateEnemies(player) {
+        let anyEnemyMoved = false;
+
+        // Create a copy of the array because enemies might be removed during iteration (suicide attack)
+        // If an enemy attacks, it calls removeEntity, which modifies the array.
+        // We iterate backward to handle removal safely, or use a copy.
+        // A copy is safer for logic flow.
+        const enemies = [...this.enemies];
+
+        for (const enemy of enemies) {
+            // Check if enemy is still in the room (might have been removed if another enemy exploded it? Unlikely currently)
+            // But good to check if it's still in the main list
+            if (this.enemies.includes(enemy)) {
+                if (enemy.takeTurn(player, this)) {
+                    anyEnemyMoved = true;
+                }
+            }
+        }
+
+        if (anyEnemyMoved) {
+            this.calculateHints();
+        }
+    }
+
+    /**
+     * Gets the entity at a specific position
+     * @param {number} x
+     * @param {number} y
+     * @returns {Object|null} The entity (Bomb, Enemy, Coin) or null
+     */
+    getEntityAt(x, y) {
+        const bomb = this.bombs.find(b => b.x === x && b.y === y);
+        if (bomb) return { type: 'bomb', entity: bomb };
+
+        const enemy = this.enemies.find(e => e.x === x && e.y === y);
+        if (enemy) return { type: 'enemy', entity: enemy };
+
+        const coin = this.coins.find(c => c.x === x && c.y === y);
+        if (coin) return { type: 'coin', entity: coin };
+
+        return null;
+    }
+
+    /**
+     * Removes an entity from the room and updates hints
+     * @param {Object} entityObj - The entity object wrapper returned by getEntityAt
+     */
+    removeEntity(entityObj) {
+        if (!entityObj) return;
+
+        const { type, entity } = entityObj;
+
+        if (type === 'bomb') {
+            const index = this.bombs.indexOf(entity);
+            if (index > -1) this.bombs.splice(index, 1);
+        } else if (type === 'enemy') {
+            const index = this.enemies.indexOf(entity);
+            if (index > -1) this.enemies.splice(index, 1);
+        } else if (type === 'coin') {
+            const index = this.coins.indexOf(entity);
+            if (index > -1) this.coins.splice(index, 1);
+        }
+
+        // Recalculate hints immediately to reflect the change
+        this.calculateHints();
     }
 
     /**
@@ -514,6 +785,107 @@ export class Room {
         if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
             this.grid[y][x] = type;
         }
+    }
+
+    /**
+     * Checks if a move is valid for the player
+     * @param {number} x 
+     * @param {number} y 
+     * @returns {boolean}
+     */
+    isValidMove(x, y) {
+        // Check bounds
+        if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
+            return false;
+        }
+
+        // Check walls (1 is wall)
+        if (this.grid[y][x] === 1) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Handles logic when player enters a tile
+     * @param {number} x 
+     * @param {number} y 
+     */
+    onPlayerEnter(x, y) {
+        // Safe check for bounds
+        if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
+
+        // Check if the tile was hidden
+        const wasHidden = this.cellData[y][x].hidden;
+
+        // Reveal the current tile
+        this.revealCell(x, y);
+
+        // If it was already revealed, we don't need to do anything else (no flood fill re-trigger)
+        if (!wasHidden) return;
+
+        // Check if player is on entrance or exit
+        const isEntrance = this.entrancePos && x === this.entrancePos.x && y === this.entrancePos.y;
+        const isExit = this.exitPos && x === this.exitPos.x && y === this.exitPos.y;
+
+        // Skip flood fill if on entrance or exit
+        if (isEntrance || isExit) return;
+
+        // Check if we should flood fill
+        const cellData = this.cellData[y][x];
+
+        // If tile is empty (hint 0) and has no entities, flood fill
+        if (cellData.hint === 0 && !this.hasEntityAt(x, y) && this.grid[y][x] !== 1) {
+            this.floodFillUnhide(x, y);
+        }
+    }
+
+    /**
+     * Recursively unhides tiles starting from x, y
+     * @param {number} x 
+     * @param {number} y 
+     * @param {Set<string>} visited - To keep track of visited cells in this recursion
+     */
+    floodFillUnhide(x, y, visited = new Set()) {
+        const key = `${x},${y}`;
+        if (visited.has(key)) return;
+        visited.add(key);
+
+        // Reveal this cell
+        this.revealCell(x, y);
+
+        // If this cell has a hint > 0, we stop recursing (but we still revealed it above)
+        // Also stop if it's a wall or entity (though revealCell handles validity)
+        if (this.cellData[y][x].hint > 0 || this.hasEntityAt(x, y) || this.grid[y][x] === 1) {
+            return;
+        }
+
+        // Check neighbors (Cardinal only)
+        const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+        for (const [dx, dy] of dirs) {
+            const nx = x + dx;
+            const ny = y + dy;
+
+            if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+                // We only recursively call if the CURRENT cell was a 0.
+                // The stopping condition is handled at the start of the next call or after revealing.
+                this.floodFillUnhide(nx, ny, visited);
+            }
+        }
+    }
+
+    /**
+     * Checks if a cell is hidden
+     * @param {number} x
+     * @param {number} y
+     * @returns {boolean}
+     */
+    isHidden(x, y) {
+        if (x >= 0 && x < this.width && y >= 0 && y < this.height && this.cellData[y][x]) {
+            return this.cellData[y][x].hidden;
+        }
+        return false;
     }
 
     /**
