@@ -1080,9 +1080,9 @@ export class Room {
             return;
         }
 
-        // Check neighbors (Cardinal only)
-        const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-        for (const [dx, dy] of dirs) {
+        // Check cardinal neighbors (full recursion)
+        const cardinalDirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+        for (const [dx, dy] of cardinalDirs) {
             const nx = x + dx;
             const ny = y + dy;
 
@@ -1090,6 +1090,22 @@ export class Room {
                 // We only recursively call if the CURRENT cell was a 0.
                 // The stopping condition is handled at the start of the next call or after revealing.
                 this.floodFillUnhide(nx, ny, visited);
+            }
+        }
+
+        // Check diagonal neighbors (only reveal if they have hint > 0)
+        const diagonalDirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+        for (const [dx, dy] of diagonalDirs) {
+            const nx = x + dx;
+            const ny = y + dy;
+
+            if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+                const diagonalCell = this.cellData[ny][nx];
+                // Only reveal diagonal tiles if they have a hint > 0 (do not recurse into them)
+                if (diagonalCell && diagonalCell.hint > 0 && !visited.has(`${nx},${ny}`)) {
+                    visited.add(`${nx},${ny}`);
+                    this.revealCell(nx, ny);
+                }
             }
         }
     }

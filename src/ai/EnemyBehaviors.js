@@ -1,6 +1,8 @@
 export class BaseChaseBehavior {
     constructor() {
         this.active = false;
+        this.blockedTurns = 0; // Track consecutive turns where enemy couldn't move
+        this.lastDesiredMove = null; // Store the tile the enemy wants to move to
     }
 
     /**
@@ -23,7 +25,35 @@ export class BaseChaseBehavior {
         }
 
         // Active behavior: Chase
-        return this.chase(enemy, player, room);
+        const result = this.chase(enemy, player, room);
+
+        // If the enemy couldn't move, track blocked turns
+        if (!result.moved) {
+            this.blockedTurns++;
+            console.log(`Enemy blocked for ${this.blockedTurns} turns`);
+
+            // After 3 blocked turns, try to break a tile
+            if (this.blockedTurns >= 3 && this.lastDesiredMove) {
+                const { x, y } = this.lastDesiredMove;
+                if (room.isHidden(x, y) && room.isValidMove(x, y)) {
+                    console.log('Enemy breaks tile!');
+                    room.revealCell(x, y);
+
+                    // Try to move there now (handles bomb interaction)
+                    if (this.tryMoveForced(enemy, x, y, room, player)) {
+                        this.blockedTurns = 0;
+                        this.lastDesiredMove = null;
+                        return { moved: true };
+                    }
+                }
+                this.blockedTurns = 0; // Reset even if we couldn't move after breaking
+            }
+        } else {
+            this.blockedTurns = 0; // Reset on successful move
+            this.lastDesiredMove = null;
+        }
+
+        return result;
     }
 
     shouldActivate(enemy, player) {
@@ -37,17 +67,27 @@ export class BaseChaseBehavior {
         return { moved: false };
     }
 
+    /**
+     * Attempts to move the enemy to a position, respecting hidden tiles and other blockers
+     */
     tryMove(enemy, x, y, room, player) {
         if (room.isValidMove(x, y)) {
             const otherEntity = room.getEntityAt(x, y);
 
-            // Avoid bombs and other enemies
-            if (otherEntity && (otherEntity.type === 'bomb' || otherEntity.type === 'enemy')) {
+            // Avoid other enemies
+            if (otherEntity && otherEntity.type === 'enemy') {
                 return false;
             }
 
-            // Avoid hidden tiles
+            // Avoid hidden tiles (but track desired move for tile breaking)
             if (room.isHidden(x, y)) {
+                this.lastDesiredMove = { x, y };
+                return false;
+            }
+
+            // Avoid bombs (but track desired move)
+            if (otherEntity && otherEntity.type === 'bomb') {
+                this.lastDesiredMove = { x, y };
                 return false;
             }
 
@@ -56,6 +96,54 @@ export class BaseChaseBehavior {
                 console.log('Enemy attacks player!');
                 player.takeDamage(1);
                 room.removeEntity({ type: 'enemy', entity: enemy });
+                return true;
+            }
+
+            // Move to empty spot or coin
+            if (!otherEntity || otherEntity.type === 'coin') {
+                enemy.x = x;
+                enemy.y = y;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Forces a move after tile breaking - allows moving onto bombs (takes damage)
+     */
+    tryMoveForced(enemy, x, y, room, player) {
+        if (room.isValidMove(x, y)) {
+            const otherEntity = room.getEntityAt(x, y);
+
+            // Avoid other enemies
+            if (otherEntity && otherEntity.type === 'enemy') {
+                return false;
+            }
+
+            // Attack Player
+            if (x === player.x && y === player.y) {
+                console.log('Enemy attacks player!');
+                player.takeDamage(1);
+                room.removeEntity({ type: 'enemy', entity: enemy });
+                return true;
+            }
+
+            // Handle bomb interaction - enemy takes damage and bomb explodes
+            if (otherEntity && otherEntity.type === 'bomb') {
+                console.log('Enemy steps on bomb!');
+                // Remove the bomb first
+                room.removeEntity(otherEntity);
+                // Enemy takes damage
+                const remainingHealth = enemy.takeDamage(1);
+                if (remainingHealth <= 0) {
+                    console.log('Enemy killed by bomb!');
+                    room.removeEntity({ type: 'enemy', entity: enemy });
+                    return true; // Enemy died, but it did act
+                }
+                // Move to the bomb's position
+                enemy.x = x;
+                enemy.y = y;
                 return true;
             }
 
