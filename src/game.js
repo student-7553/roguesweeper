@@ -104,6 +104,22 @@ function update() {
 
     let actionTaken = false;
 
+    // --- Equipment Toggle (Space) ---
+    if (gameState.input.isJustPressed('Space')) {
+        gameState.player.toggleEquip();
+    }
+
+    // --- Buy Flag (B key) ---
+    if (gameState.input.isJustPressed('KeyB')) {
+        if (gameState.score >= 50) {
+            gameState.score -= 50;
+            gameState.player.addFlag();
+            console.log('Bought a flag! Flags: ' + gameState.player.flagCount);
+        } else {
+            console.log('Not enough coins to buy a flag (need 50)');
+        }
+    }
+
     // --- Movement Controls (WASD) ---
     let dx = 0;
     let dy = 0;
@@ -118,6 +134,14 @@ function update() {
         if (gameState.player.move(dx, dy, gameState.currentRoom)) {
             // If move was successful, trigger room events
             gameState.currentRoom.onPlayerEnter(gameState.player.x, gameState.player.y);
+
+            // Check for flag pickup at the new position
+            const flagAt = gameState.currentRoom.getFlagAt(gameState.player.x, gameState.player.y);
+            if (flagAt) {
+                gameState.currentRoom.removeFlag(gameState.player.x, gameState.player.y);
+                // gameState.player.addFlag();
+                console.log('Picked up flag! Flags: ' + gameState.player.flagCount);
+            }
 
             // Check for entities at the new position
             const entityObj = gameState.currentRoom.getEntityAt(gameState.player.x, gameState.player.y);
@@ -143,19 +167,44 @@ function update() {
         }
     }
 
-    // --- Attack Controls (Arrow Keys) ---
+    // --- Arrow Key Controls (Attack or Place Flag based on equipped item) ---
     if (!actionTaken) {
-        let attackDx = 0;
-        let attackDy = 0;
+        let arrowDx = 0;
+        let arrowDy = 0;
 
-        if (gameState.input.isJustPressed('ArrowUp')) attackDy = -1;
-        else if (gameState.input.isJustPressed('ArrowDown')) attackDy = 1;
-        else if (gameState.input.isJustPressed('ArrowLeft')) attackDx = -1;
-        else if (gameState.input.isJustPressed('ArrowRight')) attackDx = 1;
+        if (gameState.input.isJustPressed('ArrowUp')) arrowDy = -1;
+        else if (gameState.input.isJustPressed('ArrowDown')) arrowDy = 1;
+        else if (gameState.input.isJustPressed('ArrowLeft')) arrowDx = -1;
+        else if (gameState.input.isJustPressed('ArrowRight')) arrowDx = 1;
 
-        if (attackDx !== 0 || attackDy !== 0) {
-            if (gameState.player.attack(attackDx, attackDy, gameState.currentRoom)) {
-                actionTaken = true;
+        if (arrowDx !== 0 || arrowDy !== 0) {
+            const targetX = gameState.player.x + arrowDx;
+            const targetY = gameState.player.y + arrowDy;
+
+            if (gameState.player.equippedItem === 'flag') {
+                // --- Flag Placement ---
+                // Check if target tile is hidden
+                if (gameState.currentRoom.isHidden(targetX, targetY)) {
+                    // Try to use a flag
+                    if (gameState.player.useFlag()) {
+                        // Place the flag
+                        if (gameState.currentRoom.placeFlag(targetX, targetY)) {
+                            actionTaken = true;
+                        } else {
+                            // Failed to place, refund the flag
+                            gameState.player.addFlag();
+                        }
+                    } else {
+                        console.log('No flags available!');
+                    }
+                } else {
+                    console.log('Can only place flags on hidden tiles');
+                }
+            } else {
+                // --- Attack (sword equipped) ---
+                if (gameState.player.attack(arrowDx, arrowDy, gameState.currentRoom)) {
+                    actionTaken = true;
+                }
             }
         }
     }
@@ -215,6 +264,21 @@ function render(ctx) {
         // Draw Score
         ctx.textAlign = 'right';
         ctx.fillText(`Score: ${gameState.score}`, ctx.canvas.width - 20, 20);
+
+        // Draw Equipped Item and Flag Count (bottom left)
+        ctx.textAlign = 'left';
+        ctx.font = '14px "Press Start 2P", monospace';
+
+        const swordIndicator = gameState.player.equippedItem === 'sword' ? '> ' : '  ';
+        const flagIndicator = gameState.player.equippedItem === 'flag' ? '> ' : '  ';
+
+        ctx.fillStyle = gameState.player.equippedItem === 'sword' ? '#ffcc00' : '#888888';
+        ctx.fillText(`${swordIndicator}Sword`, 20, ctx.canvas.height - 60);
+
+        ctx.fillStyle = gameState.player.equippedItem === 'flag' ? '#ffcc00' : '#888888';
+        ctx.fillText(`${flagIndicator}Flag x${gameState.player.flagCount}`, 20, ctx.canvas.height - 35);
+
+        ctx.fillStyle = 'white';
 
         // Draw Game Over Overlay
         if (gameState.gameOver) {
