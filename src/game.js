@@ -57,8 +57,12 @@ function startNewGame() {
     gameState.gameOver = false;
     gameState.score = 0;
 
-    // Create a test room (20x20 cells, 30px per cell, entrance on left, 25 bombs, 10 enemies, 5 coins)
-    gameState.currentRoom = new Room(20, 20, 30, SIDE.LEFT, 25, 10, 5);
+    // Random entrance side
+    const sides = [SIDE.TOP, SIDE.RIGHT, SIDE.BOTTOM, SIDE.LEFT];
+    const randomEntranceSide = sides[Math.floor(Math.random() * sides.length)];
+
+    // Create a test room (20x20 cells, 30px per cell, random entrance, 25 bombs, 10 enemies, 5 coins)
+    gameState.currentRoom = new Room(20, 20, 30, randomEntranceSide, 25, 10, 5);
 
     // Create player at entrance
     const entrance = gameState.currentRoom.entrancePos;
