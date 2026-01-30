@@ -14,7 +14,14 @@ export const SPRITES = {
     FLOOR_4: { sheet: 'sheet_1', row: 30, col: 16 },    // Floor tile variant 4
     FLOOR_5: { sheet: 'sheet_1', row: 32, col: 13 },    // Floor tile variant 5
     FLOOR_6: { sheet: 'sheet_1', row: 32, col: 14 },    // Floor tile variant 6
-    WALL: { sheet: 'sheet_1', row: 6, col: 14 },        // Wall tile
+    WALL: { sheet: 'sheet_1', row: 7, col: 14 },        // Wall tile
+    BOMB: { sheet: 'sheet_1', row: 26, col: 21 },       // Bomb entity
+    ENEMY: { sheet: 'sheet_1', row: 19, col: 31 },      // Enemy entity
+    COIN: { sheet: 'sheet_1', row: 41, col: 31 },       // Coin entity
+
+    // Hidden tile sprites (Placeholders - UPDATE THESE)
+    HIDDEN_1: { sheet: 'sheet_1', row: 38, col: 15 },
+    HIDDEN_2: { sheet: 'sheet_1', row: 37, col: 13 },
 
     // Add more sprite definitions as needed
     // Example from a different sheet:
