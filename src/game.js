@@ -41,8 +41,8 @@ function checkAllSheetsLoaded(canvas, ctx) {
     if (allLoaded && !gameState.running) {
         console.log('All sprite sheets ready, starting game loop');
 
-        // Create a test room (15x15 cells, 30px per cell, entrance on left)
-        gameState.currentRoom = new Room(15, 15, 30, SIDE.LEFT);
+        // Create a test room (15x15 cells, 30px per cell, entrance on left, 10 bombs, 5 enemies, 5 coins)
+        gameState.currentRoom = new Room(15, 15, 30, SIDE.LEFT, 10, 5, 3);
         console.log('Room created:', gameState.currentRoom);
 
         gameState.running = true;
