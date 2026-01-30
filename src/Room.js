@@ -99,6 +99,9 @@ export class Room {
         // Place exit (on a different side, avoiding the same half)
         this.placeExit();
 
+        // Generate Inner Walls (Chunks)
+        this.generateInnerWalls();
+
         // Generate bombs
         this.generateBombs();
 
@@ -110,6 +113,107 @@ export class Room {
 
         // Calculate hints
         this.calculateHints();
+    }
+
+    /**
+     * Generates inner wall chunks
+     */
+    generateInnerWalls() {
+        // Configuration
+        const wallPercentage = Math.random() * 0.15 + 0.25;
+        const targetWallCells = Math.floor((this.width - 2) * (this.height - 2) * wallPercentage);
+
+        let currentWallCells = 0;
+        const attempts = 20; // Try to place chunks N times
+
+        // Size constraints
+        const minChunkSize = 2;
+        const maxChunkSizeBase = 8;
+
+        for (let i = 0; i < attempts; i++) {
+            if (currentWallCells >= targetWallCells) break;
+
+            // randomness decide how many wall chunks to spawn (implicit by loop and break)
+
+            // Random center for the chunk - BIASED toward edges
+            // Use a power function to bias toward edges (values near 0 and width/height)
+            const biasToEdge = (val) => {
+                // Push toward 0 or 1 (edges)
+                return val < 0.5 ? val * val * 2 : 1 - (1 - val) * (1 - val) * 2;
+            };
+
+            const rx = biasToEdge(Math.random());
+            const ry = biasToEdge(Math.random());
+            const cx = Math.floor(rx * (this.width - 2)) + 1;
+            const cy = Math.floor(ry * (this.height - 2)) + 1;
+
+            // Calculate distance factor from center (0.0 at center, ~1.0 at corners)
+            const centerX = this.width / 2;
+            const centerY = this.height / 2;
+            const dist = Math.sqrt(Math.pow(cx - centerX, 2) + Math.pow(cy - centerY, 2));
+            const maxDist = Math.sqrt(Math.pow(centerX, 2) + Math.pow(centerY, 2));
+            const distFactor = dist / maxDist; // 0 to 1
+
+            // The closer the wall chunk is to the center the smaller it's size should be
+            // Max allowed size scales with distance.
+            // At center (dist=0), max is minChunkSize. At edge, max is maxChunkSizeBase.
+            const allowedMaxSize = Math.floor(minChunkSize + (maxChunkSizeBase - minChunkSize) * distFactor);
+
+            // Randomize size within limits
+            const w = Math.floor(Math.random() * (allowedMaxSize - minChunkSize + 1)) + minChunkSize;
+            const h = Math.floor(Math.random() * (allowedMaxSize - minChunkSize + 1)) + minChunkSize;
+
+            const halfW = Math.floor(w / 2);
+            const halfH = Math.floor(h / 2);
+
+            // Define chunk bounds
+            const x1 = cx - halfW;
+            const x2 = cx + halfW;
+            const y1 = cy - halfH;
+            const y2 = cy + halfH;
+
+            // Store verify backup
+            const changes = [];
+
+            // Apply walls
+            let validPlacement = true;
+
+            // Check Entrance/Exit Proximity (Radius 3 safe zone)
+            const safeDist = 3;
+            if (Math.abs(cx - this.entrancePos.x) < safeDist && Math.abs(cy - this.entrancePos.y) < safeDist) validPlacement = false;
+            if (Math.abs(cx - this.exitPos.x) < safeDist && Math.abs(cy - this.exitPos.y) < safeDist) validPlacement = false;
+
+            if (validPlacement) {
+                for (let y = y1; y <= y2; y++) {
+                    for (let x = x1; x <= x2; x++) {
+                        // Check bounds - only exclude the actual perimeter walls (row/col 0 and max)
+                        // Allow inner walls to connect to border. Path check ensures connectivity.
+                        if (x >= 1 && x <= this.width - 2 && y >= 1 && y <= this.height - 2) {
+                            if (this.grid[y][x] === 0) {
+                                this.grid[y][x] = 1;
+                                this.cellData[y][x].hidden = false; // Walls should be visible
+                                changes.push({ x, y });
+                            }
+                        }
+                    }
+                }
+
+                // Ensure that on generating walls the player still has a valid path to the exit
+                // AND no islands are created (all floor tiles reachable)
+                if (changes.length > 0) {
+                    if (!this.hasPath(this.entrancePos, this.exitPos) || !this.hasNoIslands()) {
+                        // Revert if path blocked or islands created
+                        changes.forEach(c => {
+                            this.grid[c.y][c.x] = 0;
+                            this.cellData[c.y][c.x].hidden = true; // Restore hidden state
+                        });
+                        validPlacement = false;
+                    } else {
+                        currentWallCells += changes.length;
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -152,10 +256,58 @@ export class Room {
             const y = Math.floor(Math.random() * (this.height - 2)) + 1;
 
             if (this.isValidEntityPosition(x, y)) {
-                this.bombs.push(new Bomb(x, y));
-                placed++;
+                // Temporarily place bomb
+                const bomb = new Bomb(x, y);
+                this.bombs.push(bomb);
+
+                // Check if this creates an island (unreachable floor tiles considering bombs)
+                if (!this.hasNoIslandsWithBombs()) {
+                    // Rollback
+                    this.bombs.pop();
+                } else {
+                    placed++;
+                }
             }
         }
+    }
+
+    /**
+     * Checks for islands considering bombs as blocking.
+     * Returns true if all non-bomb floor tiles are reachable from entrance.
+     */
+    hasNoIslandsWithBombs() {
+        const visited = new Set();
+        const queue = [this.entrancePos];
+        visited.add(`${this.entrancePos.x},${this.entrancePos.y}`);
+
+        while (queue.length > 0) {
+            const curr = queue.shift();
+            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of dirs) {
+                const nx = curr.x + dx;
+                const ny = curr.y + dy;
+                const key = `${nx},${ny}`;
+
+                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height &&
+                    this.grid[ny][nx] === 0 && !visited.has(key) &&
+                    !this.bombs.some(b => b.x === nx && b.y === ny)) {
+                    visited.add(key);
+                    queue.push({ x: nx, y: ny });
+                }
+            }
+        }
+
+        // Count all floor cells that don't have bombs
+        let totalAccessibleFloorCells = 0;
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                if (this.grid[y][x] === 0 && !this.bombs.some(b => b.x === x && b.y === y)) {
+                    totalAccessibleFloorCells++;
+                }
+            }
+        }
+
+        return visited.size === totalAccessibleFloorCells;
     }
 
     /**
@@ -296,6 +448,43 @@ export class Room {
             }
         }
         return false;
+    }
+
+    /**
+     * Checks if there are any unreachable floor tiles (islands).
+     * Returns true if ALL floor tiles are reachable from entrance.
+     */
+    hasNoIslands() {
+        // BFS from entrance, count all reachable floor cells (ignoring entities for this check)
+        const visited = new Set();
+        const queue = [this.entrancePos];
+        visited.add(`${this.entrancePos.x},${this.entrancePos.y}`);
+
+        while (queue.length > 0) {
+            const curr = queue.shift();
+            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of dirs) {
+                const nx = curr.x + dx;
+                const ny = curr.y + dy;
+                const key = `${nx},${ny}`;
+
+                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height &&
+                    this.grid[ny][nx] === 0 && !visited.has(key)) {
+                    visited.add(key);
+                    queue.push({ x: nx, y: ny });
+                }
+            }
+        }
+
+        // Count all floor cells in grid
+        let totalFloorCells = 0;
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                if (this.grid[y][x] === 0) totalFloorCells++;
+            }
+        }
+
+        return visited.size === totalFloorCells;
     }
 
     /**
@@ -695,7 +884,37 @@ export class Room {
                         sprite = floorSprites[this.floorVariants[y][x]];
                         break;
                     case 1: // Wall
-                        sprite = SPRITES.WALL;
+                        // Optimization: Don't render "buried" walls (surrounded by 8 walls)
+                        // Check 8 neighbors
+                        let allWalls = true;
+
+                        // Optimization: if we are at the very edge of the rendering loop, 
+                        // neighbors might be out of bounds. The prompt says "Assume out of bounds to also be wall cells".
+
+                        checkNeighbors:
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                const nx = x + dx;
+                                const ny = y + dy;
+
+                                // Get cell type. Out of bounds (-1) counts as wall (1 for our purposes here is effectively blocking)
+                                // or strictly, we can assume out of bounds is VALID wall context.
+                                let nType = 1; // Default to wall if out of bounds
+                                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+                                    nType = this.grid[ny][nx];
+                                }
+
+                                if (nType !== 1) {
+                                    allWalls = false;
+                                    break checkNeighbors;
+                                }
+                            }
+                        }
+
+                        if (!allWalls) {
+                            sprite = SPRITES.WALL;
+                        }
                         break;
                 }
 
