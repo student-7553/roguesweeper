@@ -5,6 +5,35 @@ export class Player {
         this.x = x;
         this.y = y;
         this.health = 3;
+        this.equippedItem = 'sword';  // 'sword' or 'flag'
+        this.flagCount = 3;  // Start with 3 flags
+    }
+
+    /**
+     * Toggles between sword and flag equipment
+     */
+    toggleEquip() {
+        this.equippedItem = this.equippedItem === 'sword' ? 'flag' : 'sword';
+        console.log(`Equipped: ${this.equippedItem}`);
+    }
+
+    /**
+     * Uses a flag (decrements count)
+     * @returns {boolean} True if flag was used, false if none available
+     */
+    useFlag() {
+        if (this.flagCount > 0) {
+            this.flagCount--;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Adds a flag to inventory
+     */
+    addFlag() {
+        this.flagCount++;
     }
 
     /**

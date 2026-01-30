@@ -5,6 +5,7 @@ import { SPRITES } from './rendering/spriteDefinitions.js';
 import { Bomb } from './Bomb.js';
 import { Enemy } from './Enemy.js';
 import { Coin } from './Coin.js';
+import { Flag } from './Flag.js';
 import { HorizontalChaseStrategy, VerticalChaseStrategy } from './ai/EnemyBehaviors.js';
 
 // Enum for sides of the room
@@ -54,6 +55,9 @@ export class Room {
 
         // Store coins
         this.coins = [];
+
+        // Store flags placed by player
+        this.flags = [];
 
         // Store cell data for hints
         this.cellData = [];
@@ -693,6 +697,73 @@ export class Room {
     }
 
     /**
+     * Places a flag on a hidden tile
+     * @param {number} x - Grid x coordinate
+     * @param {number} y - Grid y coordinate
+     * @returns {boolean} True if flag was placed successfully
+     */
+    placeFlag(x, y) {
+        // Check bounds
+        if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
+            return false;
+        }
+
+        // Check if tile is hidden (can only place flags on hidden tiles)
+        if (!this.isHidden(x, y)) {
+            console.log('Cannot place flag on revealed tile');
+            return false;
+        }
+
+        // Check if there's already a flag here
+        if (this.getFlagAt(x, y)) {
+            console.log('Flag already placed here');
+            return false;
+        }
+
+        // Check if wall
+        if (this.grid[y][x] === 1) {
+            return false;
+        }
+
+        // Determine if there's a bomb at this position (for danger/safe sprite)
+        const hasBomb = this.bombs.some(b => b.x === x && b.y === y);
+
+        // Create and add the flag
+        const flag = new Flag(x, y, hasBomb);
+        this.flags.push(flag);
+
+        console.log(`Flag placed at (${x}, ${y}) - ${hasBomb ? 'DANGER' : 'SAFE'}`);
+        return true;
+    }
+
+    /**
+     * Gets the flag at a specific position
+     * @param {number} x
+     * @param {number} y
+     * @returns {Flag|null}
+     */
+    getFlagAt(x, y) {
+        return this.flags.find(f => f.x === x && f.y === y) || null;
+    }
+
+    /**
+     * Removes a flag at the given position and returns it
+     * @param {number} x
+     * @param {number} y
+     * @returns {Flag|null} The removed flag, or null if none found
+     */
+    removeFlag(x, y) {
+        const index = this.flags.findIndex(f => f.x === x && f.y === y);
+        if (index > -1) {
+            const flag = this.flags[index];
+            this.flags.splice(index, 1);
+            console.log(`Flag picked up at (${x}, ${y})`);
+            return flag;
+        }
+        return null;
+    }
+
+    /**
      * Checks if a position is valid for an entity (bomb or enemy)
      * @param {number} x 
      * @param {number} y 
@@ -979,6 +1050,109 @@ export class Room {
                 coin.render(ctx, renderer, this.cellSize, offsetX, offsetY);
             }
         });
+
+        // Render flags (on hidden tiles - always render)
+        this.flags.forEach(flag => {
+            flag.render(ctx, renderer, this.cellSize, offsetX, offsetY);
+        });
+
+        // Render entrance/exit direction arrows
+        this.renderDirectionArrows(ctx, offsetX, offsetY);
+    }
+
+    /**
+     * Renders directional triangles at entrance (pointing in) and exit (pointing out)
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} offsetX
+     * @param {number} offsetY
+     */
+    renderDirectionArrows(ctx, offsetX, offsetY) {
+        const arrowSize = this.cellSize * 0.4;
+        const arrowOffset = this.cellSize * 0.3; // Distance from edge
+
+        // Helper to draw triangle
+        const drawTriangle = (cx, cy, rotation, color) => {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(rotation);
+            ctx.beginPath();
+            ctx.moveTo(0, -arrowSize / 2);
+            ctx.lineTo(arrowSize / 2, arrowSize / 2);
+            ctx.lineTo(-arrowSize / 2, arrowSize / 2);
+            ctx.closePath();
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.restore();
+        };
+
+        // Entrance arrow (green, pointing INTO the grid)
+        if (this.entrancePos) {
+            const ex = this.entrancePos.x;
+            const ey = this.entrancePos.y;
+            const centerX = offsetX + ex * this.cellSize + this.cellSize / 2;
+            const centerY = offsetY + ey * this.cellSize + this.cellSize / 2;
+
+            let arrowX = centerX, arrowY = centerY, rotation = 0;
+
+            switch (this.entranceSide) {
+                case SIDE.TOP:
+                    arrowY = offsetY - arrowOffset;
+                    rotation = Math.PI; // Points down (into grid)
+                    break;
+                case SIDE.BOTTOM:
+                    arrowY = offsetY + this.height * this.cellSize + arrowOffset;
+                    rotation = 0; // Points up (into grid)
+                    break;
+                case SIDE.LEFT:
+                    arrowX = offsetX - arrowOffset;
+                    rotation = Math.PI / 2; // Points right (into grid)
+                    break;
+                case SIDE.RIGHT:
+                    arrowX = offsetX + this.width * this.cellSize + arrowOffset;
+                    rotation = -Math.PI / 2; // Points left (into grid)
+                    break;
+            }
+
+            drawTriangle(arrowX, arrowY, rotation);
+        }
+
+        // Exit arrow (yellow, pointing OUT of the grid)
+        if (this.exitPos) {
+            const ex = this.exitPos.x;
+            const ey = this.exitPos.y;
+            const centerX = offsetX + ex * this.cellSize + this.cellSize / 2;
+            const centerY = offsetY + ey * this.cellSize + this.cellSize / 2;
+
+            let arrowX = centerX, arrowY = centerY, rotation = 0;
+
+            // Determine exit side based on position
+            let exitSide;
+            if (ey === 0) exitSide = SIDE.TOP;
+            else if (ey === this.height - 1) exitSide = SIDE.BOTTOM;
+            else if (ex === 0) exitSide = SIDE.LEFT;
+            else exitSide = SIDE.RIGHT;
+
+            switch (exitSide) {
+                case SIDE.TOP:
+                    arrowY = offsetY - arrowOffset;
+                    rotation = 0; // Points up (out of grid)
+                    break;
+                case SIDE.BOTTOM:
+                    arrowY = offsetY + this.height * this.cellSize + arrowOffset;
+                    rotation = Math.PI; // Points down (out of grid)
+                    break;
+                case SIDE.LEFT:
+                    arrowX = offsetX - arrowOffset;
+                    rotation = -Math.PI / 2; // Points left (out of grid)
+                    break;
+                case SIDE.RIGHT:
+                    arrowX = offsetX + this.width * this.cellSize + arrowOffset;
+                    rotation = Math.PI / 2; // Points right (out of grid)
+                    break;
+            }
+
+            drawTriangle(arrowX, arrowY, rotation);
+        }
     }
 
     /**
