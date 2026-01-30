@@ -17,9 +17,11 @@ export const SPRITES = {
     WALL: { sheet: 'sheet_1', row: 7, col: 14 },        // Wall tile
     BOMB: { sheet: 'sheet_1', row: 26, col: 21 },       // Bomb entity
     ENEMY: { sheet: 'sheet_1', row: 19, col: 31 },      // Enemy entity
+    ENEMY_2: { sheet: 'sheet_1', row: 21, col: 31 },    // Enemy entity variant 2
     COIN: { sheet: 'sheet_1', row: 41, col: 31 },       // Coin entity
+    PLAYER: { sheet: 'sheet_1', row: 10, col: 3 },     // Player entity (Best guess: near enemies/items)
 
-    // Hidden tile sprites (Placeholders - UPDATE THESE)
+    // Hidden tile sprites
     HIDDEN_1: { sheet: 'sheet_1', row: 38, col: 15 },
     HIDDEN_2: { sheet: 'sheet_1', row: 37, col: 13 },
 
