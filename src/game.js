@@ -27,7 +27,7 @@ export function initGame(canvas, ctx) {
     gameState.input = new Input();
 
     // Load sprite sheet(s) - you can add more sheets here in the future
-    gameState.spriteSheets.sheet_1 = new SpriteSheet('../assets/images/sheet_1.png', 10, 10, () => {
+    gameState.spriteSheets.sheet_1 = new SpriteSheet('./assets/images/sheet_1.png', 10, 10, () => {
         console.log('sheet_1 loaded');
         checkAllSheetsLoaded(canvas, ctx);
     });
