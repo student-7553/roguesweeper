@@ -15,7 +15,7 @@ let gameState = {
     input: null,
     player: null,
     gameOver: false,
-    score: 0
+    coins: 0
 };
 
 export function initGame(canvas, ctx) {
@@ -56,7 +56,7 @@ function startNewGame() {
 
     // Reset Game State
     gameState.gameOver = false;
-    gameState.score = 0;
+    gameState.coins = 0;
 
     // Random entrance side
     const sides = [SIDE.TOP, SIDE.RIGHT, SIDE.BOTTOM, SIDE.LEFT];
@@ -120,8 +120,8 @@ function update() {
 
     // --- Buy Flag (B key) ---
     if (gameState.input.isJustPressed('KeyB')) {
-        if (gameState.score >= 50) {
-            gameState.score -= 50;
+        if (gameState.coins >= 50) {
+            gameState.coins -= 50;
             gameState.player.addFlag();
             console.log('Bought a flag! Flags: ' + gameState.player.flagCount);
         } else {
@@ -157,7 +157,7 @@ function update() {
                     break;
                 case PLAYER_MOVE_RESULT.COIN:
                     getSoundManager().playCoin();
-                    gameState.score += 10;
+                    gameState.coins += 10;
                     break;
                 case PLAYER_MOVE_RESULT.ENEMY:
                 case PLAYER_MOVE_RESULT.BOMB:
@@ -265,9 +265,9 @@ function render(ctx) {
         // Draw Health
         ctx.fillText(`Health: ${gameState.player.health}`, 20, 20);
 
-        // Draw Score
+        // Draw Coins
         ctx.textAlign = 'right';
-        ctx.fillText(`Score: ${gameState.score}`, ctx.canvas.width - 20, 20);
+        ctx.fillText(`Coins: ${gameState.coins}`, ctx.canvas.width - 20, 20);
 
         // Draw Equipped Item and Flag Count (bottom left)
         ctx.textAlign = 'left';
