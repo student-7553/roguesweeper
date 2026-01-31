@@ -2,7 +2,7 @@
 
 import { SpriteSheet } from './rendering/SpriteSheet.js';
 import { SpriteRenderer } from './rendering/SpriteRenderer.js';
-import { Room, SIDE } from './Room.js';
+import { PLAYER_MOVE_RESULT, Room, SIDE } from './Room.js';
 import { Input } from './Input.js';
 import { Player } from './Player.js';
 import { getSoundManager } from './Sound.js';
@@ -91,6 +91,14 @@ function gameLoop(canvas, ctx) {
     requestAnimationFrame(() => gameLoop(canvas, ctx));
 }
 
+function startNextLevel() {
+    gameState.currentRoom.cleanUp();
+    gameState.currentRoom.generate();
+    const entrance = gameState.currentRoom.entrancePos;
+    gameState.player.setPlayerPosition(entrance.x, entrance.y, gameState.currentRoom);
+    gameState.currentRoom.onPlayerEnter(gameState.player.x, gameState.player.y);
+}
+
 function update() {
     if (!gameState.player || !gameState.input) return;
 
@@ -133,40 +141,32 @@ function update() {
 
     if (dx !== 0 || dy !== 0) {
         if (gameState.player.move(dx, dy, gameState.currentRoom)) {
-            // If move was successful, trigger room events
-            gameState.currentRoom.onPlayerEnter(gameState.player.x, gameState.player.y);
 
-            // Check for flag pickup at the new position
-            const flagAt = gameState.currentRoom.getFlagAt(gameState.player.x, gameState.player.y);
-            if (flagAt) {
-                gameState.currentRoom.removeFlag(gameState.player.x, gameState.player.y);
-                // gameState.player.addFlag();
-                console.log('Picked up flag! Flags: ' + gameState.player.flagCount);
+            const playerEnterResultState = gameState.currentRoom.onPlayerEnter(gameState.player.x, gameState.player.y);
+            if (playerEnterResultState != PLAYER_MOVE_RESULT.INVALID) {
+                actionTaken = true;
             }
 
-            // Check for entities at the new position
-            const entityObj = gameState.currentRoom.getEntityAt(gameState.player.x, gameState.player.y);
-
-            if (entityObj) {
-                if (entityObj.type === 'bomb' || entityObj.type === 'enemy') {
-                    // Take damage
-                    const remainingHealth = gameState.player.takeDamage(1);
-                    console.log(`Hit ${entityObj.type}! Health: ${remainingHealth}`);
-                    // Remove the entity
-                    gameState.currentRoom.removeEntity(entityObj);
-                } else if (entityObj.type === 'coin') {
-                    // Collect coin
-                    gameState.score += 10;
-                    console.log(`Collected Coin! Score: ${gameState.score}`);
+            switch (playerEnterResultState) {
+                case PLAYER_MOVE_RESULT.REACHED_EXIT:
+                    console.log("We have reached exit");
+                    startNextLevel();
+                    break;
+                case PLAYER_MOVE_RESULT.NORMAL:
+                    getSoundManager().playMove();
+                    break;
+                case PLAYER_MOVE_RESULT.COIN:
                     getSoundManager().playCoin();
+                    gameState.score += 10;
+                    break;
+                case PLAYER_MOVE_RESULT.ENEMY:
+                case PLAYER_MOVE_RESULT.BOMB:
+                    const remainingHealth = gameState.player.takeDamage(1);
+                    console.log(`Hit! Health: ${remainingHealth}`);
+                    break;
 
-                    // Remove the entity
-                    gameState.currentRoom.removeEntity(entityObj);
-                }
-            } else {
-                getSoundManager().playMove();
             }
-            actionTaken = true;
+
         }
     }
 

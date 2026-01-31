@@ -5,7 +5,10 @@ export class Player {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.health = 3;
+
+        // this.health = 3;
+        this.health = 100;
+
         this.equippedItem = 'sword';  // 'sword' or 'flag'
         this.flagCount = 3;  // Start with 3 flags
     }
@@ -43,6 +46,7 @@ export class Player {
      * @returns {number} Current health
      */
     takeDamage(amount) {
+        // Todo show a flashing red animation
         this.health -= amount;
         getSoundManager().playDamage();
         return this.health;
@@ -59,6 +63,23 @@ export class Player {
         const newX = this.x + dx;
         const newY = this.y + dy;
 
+        if (room.isValidMove(newX, newY)) {
+            this.x = newX;
+            this.y = newY;
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Attempts to move the player
+     * @param {number} dx - Change in x (-1, 0, 1)
+     * @param {number} dy - Change in y (-1, 0, 1)
+     * @param {Room} room - The current room to check collisions against
+     * @returns {boolean} - True if moved, false if blocked
+     */
+    setPlayerPosition(newX, newY, room) {
         if (room.isValidMove(newX, newY)) {
             this.x = newX;
             this.y = newY;

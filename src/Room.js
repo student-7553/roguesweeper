@@ -16,6 +16,16 @@ export const SIDE = {
     LEFT: 'LEFT'
 };
 
+export const PLAYER_MOVE_RESULT = {
+    REACHED_EXIT: 'REACHED_EXIT',
+    BOMB: 'BOMB',
+    COIN: 'COIN',
+    ENEMY: 'ENEMY',
+    NORMAL: 'NORMAL',
+    INVALID: 'INVALID',
+};
+
+
 export class Room {
     /**
      * Creates a new room
@@ -64,6 +74,15 @@ export class Room {
 
         // Generate the room
         this.generate();
+    }
+
+    // Prep for next level
+    cleanUp() {
+        this.bombs = [];
+        this.enemies = [];
+        this.coins = [];
+        this.flags = [];
+        this.cellData = [];
     }
 
     /**
@@ -1204,10 +1223,13 @@ export class Room {
      * Handles logic when player enters a tile
      * @param {number} x 
      * @param {number} y 
+     * @returns {PLAYER_MOVE_RESULT} Result state of onPlayerEnter 
      */
     onPlayerEnter(x, y) {
         // Safe check for bounds
-        if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
+        if (x < 0 || x >= this.width || y < 0 || y >= this.height) {
+            return PLAYER_MOVE_RESULT.INVALID;
+        };
 
         // Check if the tile was hidden
         const wasHidden = this.cellData[y][x].hidden;
@@ -1215,23 +1237,51 @@ export class Room {
         // Reveal the current tile
         this.revealCell(x, y);
 
-        // If it was already revealed, we don't need to do anything else (no flood fill re-trigger)
-        if (!wasHidden) return;
 
-        // Check if player is on entrance or exit
+        const flagAt = this.getFlagAt(x, y);
+        if (flagAt) {
+            this.removeFlag(x, y);
+            console.log('Picked up flag!');
+        }
+
         const isEntrance = this.entrancePos && x === this.entrancePos.x && y === this.entrancePos.y;
         const isExit = this.exitPos && x === this.exitPos.x && y === this.exitPos.y;
 
-        // Skip flood fill if on entrance or exit
-        if (isEntrance || isExit) return;
-
-        // Check if we should flood fill
-        const cellData = this.cellData[y][x];
-
-        // If tile is empty (hint 0) and has no entities, flood fill
-        if (cellData.hint === 0 && !this.hasEntityAt(x, y) && this.grid[y][x] !== 1) {
-            this.floodFillUnhide(x, y);
+        if (isExit) {
+            return PLAYER_MOVE_RESULT.REACHED_EXIT;
         }
+
+        const entityObj = this.getEntityAt(x, y);
+        if (!entityObj) {
+            // no entity is at this tile
+            if (wasHidden && !isEntrance && !isExit) {
+                // Check if we should flood fill
+                const cellData = this.cellData[y][x];
+                // If tile is empty (hint 0) and has no entities, flood fill
+                if (cellData.hint === 0) {
+                    this.floodFillUnhide(x, y);
+                }
+            };
+
+            return PLAYER_MOVE_RESULT.NORMAL;
+        }
+
+        if (entityObj.type === 'coin') {
+            this.removeEntity(entityObj);
+            return PLAYER_MOVE_RESULT.COIN;
+        }
+
+        if (entityObj.type === 'bomb') {
+            this.removeEntity(entityObj);
+            return PLAYER_MOVE_RESULT.BOMB;
+        }
+
+        if (entityObj.type === 'enemy') {
+            this.removeEntity(entityObj);
+            return PLAYER_MOVE_RESULT.ENEMY;
+        }
+
+
     }
 
     /**
