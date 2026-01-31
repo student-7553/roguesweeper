@@ -5,6 +5,7 @@ import { SpriteRenderer } from './rendering/SpriteRenderer.js';
 import { Room, SIDE } from './Room.js';
 import { Input } from './Input.js';
 import { Player } from './Player.js';
+import { getSoundManager } from './Sound.js';
 
 let gameState = {
     running: false,
@@ -151,17 +152,19 @@ function update() {
                     // Take damage
                     const remainingHealth = gameState.player.takeDamage(1);
                     console.log(`Hit ${entityObj.type}! Health: ${remainingHealth}`);
-
                     // Remove the entity
                     gameState.currentRoom.removeEntity(entityObj);
                 } else if (entityObj.type === 'coin') {
                     // Collect coin
                     gameState.score += 10;
                     console.log(`Collected Coin! Score: ${gameState.score}`);
+                    getSoundManager().playCoin();
 
                     // Remove the entity
                     gameState.currentRoom.removeEntity(entityObj);
                 }
+            } else {
+                getSoundManager().playMove();
             }
             actionTaken = true;
         }
@@ -219,6 +222,7 @@ function update() {
         // --- Game State Check ---
         if (gameState.player.health <= 0) {
             gameState.gameOver = true;
+            getSoundManager().playLose();
             console.log("Game Over!");
         }
     }

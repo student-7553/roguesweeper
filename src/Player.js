@@ -1,4 +1,5 @@
 import { SPRITES } from './rendering/spriteDefinitions.js';
+import { getSoundManager } from './Sound.js';
 
 export class Player {
     constructor(x, y) {
@@ -43,6 +44,7 @@ export class Player {
      */
     takeDamage(amount) {
         this.health -= amount;
+        getSoundManager().playDamage();
         return this.health;
     }
 
@@ -89,16 +91,9 @@ export class Player {
                 room.removeEntity(entityObj);
                 console.log("Enemy defeated!");
             }
-            return true; // Performed an attack action
-        } else {
-            console.log("Attack missed!");
-            // return true; // Missed attack still consumes turn? Yes, usually.
-            // But wait, if player just hits arrow key at wall, does it waste turn?
-            // "the attack is done in the chosen direction's adjacent tile". 
-            // "If the enemy dies on the player's turn... verify [it]... does not get a chance to play a turn".
-            // I will assume attacking always consumes a turn, akin to bumping into a wall in some roguelikes, or at least swinging weapon.
-            return true;
         }
+        getSoundManager().playAttack();
+        return true;
     }
 
     /**
