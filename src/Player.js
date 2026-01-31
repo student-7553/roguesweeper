@@ -6,11 +6,12 @@ export class Player {
         this.x = x;
         this.y = y;
 
-        // this.health = 3;
-        this.health = 100;
+        this.health = 3;
 
         this.equippedItem = 'sword';  // 'sword' or 'flag'
         this.flagCount = 3;  // Start with 3 flags
+
+        this.isDamageFlashing = false  // Track damage flash effect
     }
 
     /**
@@ -46,9 +47,15 @@ export class Player {
      * @returns {number} Current health
      */
     takeDamage(amount) {
-        // Todo show a flashing red animation
         this.health -= amount;
         getSoundManager().playDamage();
+
+        // Trigger red flash effect
+        this.isDamageFlashing = true;
+        setTimeout(() => {
+            this.isDamageFlashing = false;
+        }, 250); // Flash for 0.5 seconds
+
         return this.health;
     }
 
@@ -130,6 +137,23 @@ export class Player {
         const pixelY = offsetY + this.y * cellSize;
         const scale = cellSize / 10; // Assuming 10x10 sprites
 
+        // Apply red flash effect if taking damage
+        if (this.isDamageFlashing) {
+            ctx.save();
+
+            // Draw the sprite normally first
+            renderer.drawSprite(ctx, SPRITES.PLAYER, pixelX, pixelY, scale);
+
+            // Apply red tint overlay only to the sprite pixels
+            // Using 'multiply' blend mode to tint only visible pixels
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.fillStyle = 'rgb(255, 100, 100)'; // Light red tint
+            ctx.fillRect(pixelX, pixelY, cellSize, cellSize);
+
+
+            ctx.restore();
+            return;
+        }
         renderer.drawSprite(ctx, SPRITES.PLAYER, pixelX, pixelY, scale);
     }
 }
